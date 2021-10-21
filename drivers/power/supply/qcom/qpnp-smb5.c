@@ -673,6 +673,17 @@ static int smb5_configure_internal_pull(struct smb_charger *chg, int type,
 #define MICRO_3PA			3000000
 #define OTG_DEFAULT_DEGLITCH_TIME_MS	50
 #define DEFAULT_WD_BARK_TIME		64
+=======
+#define MICRO_1P5A				1500000
+#define MICRO_P1A				100000
+#define MICRO_1PA				1000000
+#define MICRO_3PA				3000000
+#define MICRO_4PA				4000000
+#define OTG_DEFAULT_DEGLITCH_TIME_MS		50
+#define DEFAULT_WD_BARK_TIME			64
+#define DEFAULT_WD_SNARL_TIME_8S		0x07
+#define DEFAULT_FCC_STEP_SIZE_UA		100000
+#define DEFAULT_FCC_STEP_UPDATE_DELAY_MS	1000
 static int smb5_parse_dt(struct smb5 *chip)
 {
 	struct smb_charger *chg = &chip->chg;
@@ -917,6 +928,40 @@ static int smb5_parse_dt(struct smb5 *chip)
 
 	chip->dt.disable_suspend_on_collapse = of_property_read_bool(node,
 					"qcom,disable-suspend-on-collapse");
+
+	of_property_read_u32(node, "qcom,fcc-step-delay-ms",
+					&chg->chg_param.fcc_step_delay_ms);
+	if (chg->chg_param.fcc_step_delay_ms <= 0)
+		chg->chg_param.fcc_step_delay_ms =
+					DEFAULT_FCC_STEP_UPDATE_DELAY_MS;
+
+	of_property_read_u32(node, "qcom,fcc-step-size-ua",
+					&chg->chg_param.fcc_step_size_ua);
+	if (chg->chg_param.fcc_step_size_ua <= 0)
+		chg->chg_param.fcc_step_size_ua = DEFAULT_FCC_STEP_SIZE_UA;
+
+	/*
+	 * If property is present parallel charging with CP is disabled
+	 * with HVDCP3 adapter.
+	 */
+	chg->hvdcp3_standalone_config = of_property_read_bool(node,
+					"qcom,hvdcp3-standalone-config");
+	of_property_read_u32(node, "qcom,hvdcp3-max-icl-ua",
+					&chg->chg_param.hvdcp3_max_icl_ua);
+	if (chg->chg_param.hvdcp3_max_icl_ua <= 0)
+		chg->chg_param.hvdcp3_max_icl_ua = MICRO_3PA;
+
+	/* Used only in Adapter CV mode of operation */
+	of_property_read_u32(node, "qcom,qc4-max-icl-ua",
+				&chg->chg_param.qc4_max_icl_ua);
+	if (chg->chg_param.qc4_max_icl_ua <= 0)
+		chg->chg_param.qc4_max_icl_ua = MICRO_4PA;
+
+	chg->wls_icl_ua = DCIN_ICL_MAX_UA;
+	rc = of_property_read_u32(node, "qcom,wls-current-max-ua",
+			&tmp);
+	if (!rc && tmp < DCIN_ICL_MAX_UA)
+		chg->wls_icl_ua = tmp;
 	return 0;
 }
 
@@ -1113,7 +1158,7 @@ static int smb5_usb_get_prop(struct power_supply *psy,
 		val->intval = get_client_vote(chg->usb_icl_votable, PD_VOTER);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
-		rc = smblib_get_prop_input_current_settled(chg, val);
+		rc = smblib_get_prop_input_current_max(chg, val);
 		break;
 	case POWER_SUPPLY_PROP_TYPE:
 		val->intval = POWER_SUPPLY_TYPE_USB_PD;
